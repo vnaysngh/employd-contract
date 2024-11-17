@@ -9,7 +9,7 @@ import { DataLocation } from "@ethsign/sign-protocol-evm/src/models/DataLocation
 // Enum for the attestation status
 enum AttestationStatus { NotInitiated, Pending, Signed, Rejected }
 
-contract Schilled {
+contract Employd {
     // Struct to store Experience details
     struct Experience {
         uint256 id;
@@ -191,6 +191,11 @@ contract Schilled {
 
         // Emit event for rejection
         emit AttestationRejected(experienceId);
+    }
+
+    // Function to get the experience details by experience ID
+    function getExperienceById(uint256 experienceId) public view returns (Experience memory) {
+        return experiences[experienceId];
     }
 
     // Events
