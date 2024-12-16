@@ -15,13 +15,14 @@ contract Employd {
         uint256 id;
         address owner;
         string role;
-        string company;
+        string seeker;
+        string employer;
         string startMonth;
         string startYear;
         string endMonth;
         string endYear;
         string employmentType;
-        string[] responsibilities; // Array of responsibilities
+        string description; // Array of description
         string[] skills; // Array of skills
         AttestationStatus attestationStatus; // New field for attestation status
         address attestationFromAddress; // New field for attestation address
@@ -57,32 +58,34 @@ contract Employd {
     // Function to add a new experience
     function addExperience(
         string memory _role,
-        string memory _company,
+        string memory _seeker,
+        string memory _employer,
         string memory _startMonth,
         string memory _startYear,
         string memory _endMonth,
         string memory _endYear,
         string memory _employmentType,
-        string[] memory _responsibilities, // New parameter for responsibilities
-        string[] memory _skills // New parameter for skills
+        string memory _description,
+        string[] memory _skills 
     ) public returns (uint256) {
         uint256 id = generateUniqueId();
     
-        // Create and store the experience with added responsibilities and skills
+        // Create and store the experience with added description and skills
         experiences[id] = Experience(
             id,
             msg.sender,
             _role,
-            _company,
+            _seeker,
+            _employer,
             _startMonth, 
             _startYear,
             _endMonth,
             _endYear,
             _employmentType,
-            _responsibilities, // Store the responsibilities
-            _skills, // Store the skills
-            AttestationStatus.NotInitiated, // Default status is NotInitiated
-            address(0), // Default attestation address
+            _description, 
+            _skills, 
+            AttestationStatus.NotInitiated, 
+            address(0), 
             "" // Default attestation ENS
         );
 
@@ -129,13 +132,13 @@ contract Employd {
         // Create the attestation data
         bytes memory data = abi.encode(
             experience.role,
-            experience.company,
+            experience.employer,
             experience.startMonth,
             experience.startYear,
             experience.endMonth,
             experience.endYear,
             experience.employmentType,
-            experience.responsibilities,
+            experience.description,
             experience.skills
         );
 
