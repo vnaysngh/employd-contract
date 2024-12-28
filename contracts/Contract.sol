@@ -152,13 +152,11 @@ contract Employd is Ownable, ReentrancyGuard {
             experience.endMonth,
             experience.endYear,
             experience.employmentType
-            // experience.description
         );
 
-         // Declare recipients properly as a bytes array
     
         bytes[] memory recipients = new bytes[](1);
-        recipients[0] = abi.encode(msg.sender);
+        recipients[0] = abi.encode(experience.seekerAddress); //seeker is the recipient
 
         // Create the attestation struct
        Attestation memory a = Attestation({
@@ -166,7 +164,7 @@ contract Employd is Ownable, ReentrancyGuard {
             linkedAttestationId: 0,
             attestTimestamp: 0,
             revokeTimestamp: 0,
-            attester: address(this),
+            attester: msg.sender,  // Employer becomes the attester
             validUntil: 0,
             dataLocation: DataLocation.ONCHAIN,
             revoked: false,
