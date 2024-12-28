@@ -16,17 +16,15 @@ contract Employd {
         address owner;
         string role;
         string seeker;
-        string employer;
+        string employerEnsName;
         string startMonth;
         string startYear;
         string endMonth;
         string endYear;
         string employmentType;
-        string description; // Array of description
-        string[] skills; // Array of skills
-        AttestationStatus attestationStatus; // New field for attestation status
-        address attestationFromAddress; // New field for attestation address
-        string attestationFromEns; // New field for attestation ENS name
+        string description; 
+        address employerAddress; 
+        AttestationStatus attestationStatus;
     }
 
     // Mappings to store experiences by id and experience ids
@@ -59,14 +57,14 @@ contract Employd {
     function addExperience(
         string memory _role,
         string memory _seeker,
-        string memory _employer,
+        string memory _employerEnsName,
         string memory _startMonth,
         string memory _startYear,
         string memory _endMonth,
         string memory _endYear,
         string memory _employmentType,
         string memory _description,
-        string[] memory _skills 
+        address _employerAddress
     ) public returns (uint256) {
         uint256 id = generateUniqueId();
     
@@ -76,17 +74,15 @@ contract Employd {
             msg.sender,
             _role,
             _seeker,
-            _employer,
+            _employerEnsName,
             _startMonth, 
             _startYear,
             _endMonth,
             _endYear,
             _employmentType,
             _description, 
-            _skills, 
-            AttestationStatus.NotInitiated, 
-            address(0), 
-            "" // Default attestation ENS
+            _employerAddress,
+            AttestationStatus.NotInitiated
         );
 
         experiencesIds.push(id);
@@ -95,27 +91,24 @@ contract Employd {
         return id;
     }
 
-    event EmployerChosen(uint256 experienceId, address employer, string employerEns);
+    event EmployerChosen(uint256 experienceId, address employerAddress, string employerEns);
 
-     // Function to choose an employer for attestation
-    function chooseEmployerForAttestation(uint256 experienceId, address employer) public {
+     // Function to choose an employerAddress for attestation
+    function chooseEmployerForAttestation(uint256 experienceId, address employerAddress) public {
         Experience storage experience = experiences[experienceId];
 
         // Ensure the caller is the experience owner
-        require(msg.sender == experience.owner, "Only the employee can choose the employer");
+        require(msg.sender == experience.owner, "Only the employee can choose the employerAddress");
 
         // Ensure the status is 'Not Initiated' before proceeding
         require(experience.attestationStatus == AttestationStatus.NotInitiated, "Attestation already initiated");
 
-        // Update the experience with the employer's address and ENS (you can replace it with an actual ENS resolution logic if needed)
-        experience.attestationFromAddress = employer;
-        experience.attestationFromEns = ""; // Here you can include ENS lookup or use a placeholder
+        experience.employerAddress = employerAddress;
 
-        // Update the attestation status to Pending, indicating that the employer is chosen
         experience.attestationStatus = AttestationStatus.Pending;
 
-        // Emit event for employer choice
-        emit EmployerChosen(experienceId, employer, experience.attestationFromEns);
+        // Emit event for employerAddress choice
+        emit EmployerChosen(experienceId, employerAddress, experience.employerEnsName);
     }
 
 
@@ -123,23 +116,23 @@ contract Employd {
     function signAttestation(uint256 experienceId) public {
         Experience storage experience = experiences[experienceId];
 
-        // Ensure the attestation is in Pending status, i.e., employer has been chosen
+        // Ensure the attestation is in Pending status, i.e., employerAddress has been chosen
         require(experience.attestationStatus == AttestationStatus.Pending, "Employer must be chosen first");
 
-        // Ensure the sender is the employer that is authorized to sign the attestation
-        require(msg.sender == experience.attestationFromAddress, "Only the selected employer can sign the attestation");
+        // Ensure the sender is the employerAddress that is authorized to sign the attestation
+        require(msg.sender == experience.employerAddress, "Only the selected employerAddress can sign the attestation");
 
         // Create the attestation data
         bytes memory data = abi.encode(
             experience.role,
-            experience.employer,
+            experience.employerAddress,
             experience.startMonth,
             experience.startYear,
             experience.endMonth,
             experience.endYear,
             experience.employmentType,
-            experience.description,
-            experience.skills
+            experience.description
+            // experience.skills
         );
 
         // Declare recipients properly as a bytes array
@@ -237,5 +230,27 @@ contract Employd {
         }
 
         return userExperiences;
+    }
+
+    function getEmployerExperiences(address _employerAddress) public view returns (Experience[] memory) {
+        uint employerExperienceCount = 0;
+        
+        for (uint i = 0; i < experiencesIds.length; i++) {
+            if (experiences[experiencesIds[i]].employerAddress == _employerAddress) {
+                employerExperienceCount++;
+            }
+        }
+
+        Experience[] memory employerExperiences = new Experience[](employerExperienceCount);
+        uint index = 0;
+
+        for (uint i = 0; i < experiencesIds.length; i++) {
+            if (experiences[experiencesIds[i]].employerAddress == _employerAddress) {
+                employerExperiences[index] = experiences[experiencesIds[i]];
+                index++;
+            }
+        }
+
+        return employerExperiences;
     }
 }
