@@ -11,9 +11,9 @@ import { DataLocation } from "@ethsign/sign-protocol-evm/src/models/DataLocation
 enum AttestationStatus { NotInitiated, Pending, Signed, Rejected }
 
 contract Employd is Ownable, ReentrancyGuard {
-    // Struct to store Experience details
+    // Struct using uint32 for ID
     struct Experience {
-        uint256 id;
+        uint32 id;
         address owner;
         string role;
         string seekerName;
@@ -31,45 +31,37 @@ contract Employd is Ownable, ReentrancyGuard {
         AttestationStatus attestationStatus;
     }
 
-    // Mappings and storage for experiences
-    mapping(uint256 => Experience) private experiences;
-    mapping(address => uint256[]) private userExperienceIds;
-    mapping(address => uint256[]) private employerExperienceIds;
-    uint256 private totalExperiences;
+    // Storage using uint32
+    mapping(uint32 => Experience) private experiences;
+    mapping(address => uint32[]) private userExperienceIds;
+    mapping(address => uint32[]) private employerExperienceIds;
+    uint32 private nextId = 1;
 
     // Sign Protocol instance and schemaId
     ISP private spInstance;
     uint64 private schemaId;
 
-    // Events
-    event ExperienceAdded(uint256 experienceId, address indexed owner);
-    event EmployerChosen(uint256 experienceId, address indexed employerAddress, string employerEns);
-    event AttestationSigned(uint256 experienceId, address indexed seeker, address indexed employer, uint64 attestationId);
-    // event AttestationApproved(uint256 experienceId);
-    event AttestationRejected(uint256 experienceId);
+    // Events using uint32 and indexed parameters
+    event ExperienceAdded(uint32 indexed experienceId, address indexed owner);
+    event EmployerChosen(uint32 indexed experienceId, address indexed employerAddress, string employerEns);
+    event AttestationSigned(uint32 indexed experienceId, address indexed seeker, address indexed employer, uint64 attestationId);
+    event AttestationRejected(uint32 indexed experienceId);
 
-    // Modifier for valid experience ID
-    modifier validExperienceId(uint256 experienceId) {
+    modifier validExperienceId(uint32 experienceId) {
         require(experiences[experienceId].id != 0, "Experience does not exist");
         _;
     }
 
-    // Private function to generate a unique id for experiences
-    function generateUniqueId() private view returns (uint256) {
-        return uint256(keccak256(abi.encodePacked(block.timestamp, msg.sender, totalExperiences)));
-    }
-
-    // Set the Sign Protocol instance
+    // Admin functions
     function setSPInstance(address instance) external onlyOwner {
         spInstance = ISP(instance);
     }
 
-    // Set the schema ID
     function setSchemaID(uint64 schemaId_) external onlyOwner {
         schemaId = schemaId_;
     }
 
-    // Add a new experience
+    // Main functions
     function addExperience(
         string memory _role,
         string memory _seekerName,
@@ -83,13 +75,13 @@ contract Employd is Ownable, ReentrancyGuard {
         string memory _employmentType,
         string memory _description,
         address _employerAddress
-    ) external nonReentrant returns (uint256) {
+    ) external nonReentrant returns (uint32) {
         require(bytes(_role).length > 0, "Role cannot be empty");
         require(bytes(_seekerEnsName).length > 0, "Seeker cannot be empty");
         require(bytes(_employerEnsName).length > 0, "Employer ENS name cannot be empty");
         require(bytes(_startMonth).length > 0 && bytes(_startYear).length > 0, "Start date is required");
 
-        uint256 id = generateUniqueId();
+        uint32 id = nextId++;
         experiences[id] = Experience({
             id: id,
             owner: msg.sender,
@@ -110,13 +102,11 @@ contract Employd is Ownable, ReentrancyGuard {
         });
 
         userExperienceIds[msg.sender].push(id);
-        totalExperiences++;
         emit ExperienceAdded(id, msg.sender);
         return id;
     }
 
-    // Choose employer for attestation
-    function chooseEmployerForAttestation(uint256 experienceId, address employerAddress)
+    function chooseEmployerForAttestation(uint32 experienceId, address employerAddress)
         external
         validExperienceId(experienceId)
         nonReentrant
@@ -133,10 +123,12 @@ contract Employd is Ownable, ReentrancyGuard {
         emit EmployerChosen(experienceId, employerAddress, experience.employerEnsName);
     }
 
-    // Sign attestation
-    function signAttestation(uint256 experienceId, address seeker) external validExperienceId(experienceId) nonReentrant {
+    function signAttestation(uint32 experienceId, address seeker) 
+        external 
+        validExperienceId(experienceId) 
+        nonReentrant 
+    {
         Experience storage experience = experiences[experienceId];
-            // Ensure that the specified partyA is the seeker associated with the experience
         require(experience.seekerAddress == seeker, "Provided seeker does not match the experience seeker");
         require(msg.sender == experience.employerAddress, "Only the assigned employer can sign");
         require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
@@ -156,15 +148,11 @@ contract Employd is Ownable, ReentrancyGuard {
             experience.employmentType
         );
 
-    
         bytes[] memory recipients = new bytes[](2);
-
-        //seeker and employer are the recipients
-        recipients[0] = abi.encode(seeker); 
+        recipients[0] = abi.encode(seeker);
         recipients[1] = abi.encode(msg.sender);
 
-        // Create the attestation struct
-       Attestation memory a = Attestation({
+        Attestation memory a = Attestation({
             schemaId: schemaId,
             linkedAttestationId: 0,
             attestTimestamp: 0,
@@ -174,30 +162,17 @@ contract Employd is Ownable, ReentrancyGuard {
             dataLocation: DataLocation.ONCHAIN,
             revoked: false,
             recipients: recipients,
-            data: data // SignScan assumes this is from `abi.encode(...)`
+            data: data
         });
-        // Call the Sign Protocol's attest function
+
         uint64 attestationId = spInstance.attest(a, "", "", "");
         require(attestationId != 0, "Attestation failed");
 
-        // Update the experience with the attestation details
         experience.attestationStatus = AttestationStatus.Signed;
-
-        // Emit event for attestation
-        emit AttestationSigned(experienceId,seeker, msg.sender, attestationId);
+        emit AttestationSigned(experienceId, seeker, msg.sender, attestationId);
     }
 
-/*     // Approve attestation
-    function approveAttestation(uint256 experienceId) external validExperienceId(experienceId) {
-        Experience storage experience = experiences[experienceId];
-        require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
-
-        experience.attestationStatus = AttestationStatus.Signed;
-        emit AttestationApproved(experienceId);
-    } */
-
-    // Reject attestation
-    function rejectAttestation(uint256 experienceId) external validExperienceId(experienceId) {
+    function rejectAttestation(uint32 experienceId) external validExperienceId(experienceId) {
         Experience storage experience = experiences[experienceId];
         require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
 
@@ -205,14 +180,18 @@ contract Employd is Ownable, ReentrancyGuard {
         emit AttestationRejected(experienceId);
     }
 
-    // Get experience by ID
-    function getExperienceById(uint256 experienceId) external view validExperienceId(experienceId) returns (Experience memory) {
+    // View functions
+    function getExperienceById(uint32 experienceId) 
+        external 
+        view 
+        validExperienceId(experienceId) 
+        returns (Experience memory) 
+    {
         return experiences[experienceId];
     }
 
-    // Get user experiences
     function getUserExperiences(address user) external view returns (Experience[] memory) {
-        uint256[] memory ids = userExperienceIds[user];
+        uint32[] memory ids = userExperienceIds[user];
         Experience[] memory userExperiences = new Experience[](ids.length);
 
         for (uint256 i = 0; i < ids.length; i++) {
@@ -222,9 +201,8 @@ contract Employd is Ownable, ReentrancyGuard {
         return userExperiences;
     }
 
-    // Get employer experiences
     function getEmployerExperiences(address employer) external view returns (Experience[] memory) {
-        uint256[] memory ids = employerExperienceIds[employer];
+        uint32[] memory ids = employerExperienceIds[employer];
         Experience[] memory employerExperiences = new Experience[](ids.length);
 
         for (uint256 i = 0; i < ids.length; i++) {
