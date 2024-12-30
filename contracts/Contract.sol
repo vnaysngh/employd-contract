@@ -44,8 +44,8 @@ contract Employd is Ownable, ReentrancyGuard {
     // Events
     event ExperienceAdded(uint256 experienceId, address indexed owner);
     event EmployerChosen(uint256 experienceId, address indexed employerAddress, string employerEns);
-    event AttestationSigned(uint256 experienceId, address indexed employer, uint64 attestationId);
-    event AttestationApproved(uint256 experienceId);
+    event AttestationSigned(uint256 experienceId, address indexed seeker, address indexed employer, uint64 attestationId);
+    // event AttestationApproved(uint256 experienceId);
     event AttestationRejected(uint256 experienceId);
 
     // Modifier for valid experience ID
@@ -134,8 +134,10 @@ contract Employd is Ownable, ReentrancyGuard {
     }
 
     // Sign attestation
-    function signAttestation(uint256 experienceId) external validExperienceId(experienceId) nonReentrant {
+    function signAttestation(uint256 experienceId, address seeker) external validExperienceId(experienceId) nonReentrant {
         Experience storage experience = experiences[experienceId];
+            // Ensure that the specified partyA is the seeker associated with the experience
+        require(experience.seekerAddress == seeker, "Provided seeker does not match the experience seeker");
         require(msg.sender == experience.employerAddress, "Only the assigned employer can sign");
         require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
 
@@ -155,8 +157,11 @@ contract Employd is Ownable, ReentrancyGuard {
         );
 
     
-        bytes[] memory recipients = new bytes[](1);
-        recipients[0] = abi.encode(experience.seekerAddress); //seeker is the recipient
+        bytes[] memory recipients = new bytes[](2);
+
+        //seeker and employer are the recipients
+        recipients[0] = abi.encode(seeker); 
+        recipients[1] = abi.encode(msg.sender);
 
         // Create the attestation struct
        Attestation memory a = Attestation({
@@ -164,7 +169,7 @@ contract Employd is Ownable, ReentrancyGuard {
             linkedAttestationId: 0,
             attestTimestamp: 0,
             revokeTimestamp: 0,
-            attester: msg.sender,  // Employer becomes the attester
+            attester: address(this),
             validUntil: 0,
             dataLocation: DataLocation.ONCHAIN,
             revoked: false,
@@ -179,17 +184,17 @@ contract Employd is Ownable, ReentrancyGuard {
         experience.attestationStatus = AttestationStatus.Signed;
 
         // Emit event for attestation
-        emit AttestationSigned(experienceId, msg.sender, attestationId);
+        emit AttestationSigned(experienceId,seeker, msg.sender, attestationId);
     }
 
-    // Approve attestation
+/*     // Approve attestation
     function approveAttestation(uint256 experienceId) external validExperienceId(experienceId) {
         Experience storage experience = experiences[experienceId];
         require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
 
         experience.attestationStatus = AttestationStatus.Signed;
         emit AttestationApproved(experienceId);
-    }
+    } */
 
     // Reject attestation
     function rejectAttestation(uint256 experienceId) external validExperienceId(experienceId) {
