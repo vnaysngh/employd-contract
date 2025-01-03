@@ -9,9 +9,26 @@ import { Attestation } from "@ethsign/sign-protocol-evm/src/models/Attestation.s
 import { DataLocation } from "@ethsign/sign-protocol-evm/src/models/DataLocation.sol";
 
 enum AttestationStatus { NotInitiated, Pending, Signed, Rejected }
+enum EmployerStatus { Unregistered, Registered }
 
 contract Employd is Ownable, ReentrancyGuard {
-    // Struct using uint32 for ID
+
+    struct ExperienceInput {
+        string role;
+        string seekerName;
+        string seekerEnsName;
+        string employerName;
+        string employerEnsName;
+        string startMonth;
+        string startYear;
+        string endMonth;
+        string endYear;
+        string employmentType;
+        string description;
+        address employerAddress;
+        string employerEmail;
+    }
+
     struct Experience {
         uint32 id;
         address owner;
@@ -29,21 +46,23 @@ contract Employd is Ownable, ReentrancyGuard {
         address employerAddress;
         address seekerAddress;
         AttestationStatus attestationStatus;
+        EmployerStatus employerStatus;
+        string employerEmail;  // Used only for unregistered employers
     }
 
-    // Storage using uint32
     mapping(uint32 => Experience) private experiences;
     mapping(address => uint32[]) private userExperienceIds;
     mapping(address => uint32[]) private employerExperienceIds;
+    mapping(string => address) private employerEmailToAddress;
+    mapping(string => uint32[]) private employerEmailExperiences;
     uint32 private nextId = 1;
 
-    // Sign Protocol instance and schemaId
     ISP private spInstance;
     uint64 private schemaId;
 
-    // Events using uint32 and indexed parameters
-    event ExperienceAdded(uint32 indexed experienceId, address indexed owner);
+    event ExperienceAdded(uint32 indexed experienceId, address indexed owner, EmployerStatus employerStatus);
     event EmployerChosen(uint32 indexed experienceId, address indexed employerAddress, string employerEns);
+    event EmployerRegistered(uint32 indexed experienceId, address indexed employerAddress, string employerEnsName);
     event AttestationSigned(uint32 indexed experienceId, address indexed seeker, address indexed employer, uint64 attestationId);
     event AttestationRejected(uint32 indexed experienceId);
 
@@ -52,7 +71,6 @@ contract Employd is Ownable, ReentrancyGuard {
         _;
     }
 
-    // Admin functions
     function setSPInstance(address instance) external onlyOwner {
         spInstance = ISP(instance);
     }
@@ -61,56 +79,86 @@ contract Employd is Ownable, ReentrancyGuard {
         schemaId = schemaId_;
     }
 
-    // Main functions
-    function addExperience(
-        string memory _role,
-        string memory _seekerName,
-        string memory _seekerEnsName,
-        string memory _employerName,
-        string memory _employerEnsName,
-        string memory _startMonth,
-        string memory _startYear,
-        string memory _endMonth,
-        string memory _endYear,
-        string memory _employmentType,
-        string memory _description,
-        address _employerAddress
-    ) external nonReentrant returns (uint32) {
-        require(bytes(_role).length > 0, "Role cannot be empty");
-        require(bytes(_seekerEnsName).length > 0, "Seeker cannot be empty");
-        require(bytes(_employerEnsName).length > 0, "Employer ENS name cannot be empty");
-        require(bytes(_startMonth).length > 0 && bytes(_startYear).length > 0, "Start date is required");
+    function addExperience(ExperienceInput memory input) external nonReentrant returns (uint32) {
+        require(bytes(input.role).length > 0, "Role cannot be empty");
+        require(bytes(input.seekerEnsName).length > 0, "Seeker ENS cannot be empty");
+        require(bytes(input.employerName).length > 0, "Employer name required");
+
+        EmployerStatus employerStatus;
+        AttestationStatus initialAttestationStatus;
+
+        if (input.employerAddress != address(0)) {
+            require(bytes(input.employerEnsName).length > 0, "Employer ENS required");
+            employerStatus = EmployerStatus.Registered;
+            initialAttestationStatus = AttestationStatus.Pending;
+        } else {
+            require(bytes(input.employerEmail).length > 0, "Email required");
+            employerStatus = EmployerStatus.Unregistered;
+            initialAttestationStatus = AttestationStatus.NotInitiated;
+        }
 
         uint32 id = nextId++;
         experiences[id] = Experience({
             id: id,
             owner: msg.sender,
-            role: _role,
-            seekerName: _seekerName,
-            seekerEnsName: _seekerEnsName,
-            employerName: _employerName,
-            employerEnsName: _employerEnsName,
-            startMonth: _startMonth,
-            startYear: _startYear,
-            endMonth: _endMonth,
-            endYear: _endYear,
-            employmentType: _employmentType,
-            description: _description,
-            employerAddress: _employerAddress,
+            role: input.role,
+            seekerName: input.seekerName,
+            seekerEnsName: input.seekerEnsName,
+            employerName: input.employerName,
+            employerEnsName: input.employerEnsName,
+            startMonth: input.startMonth,
+            startYear: input.startYear,
+            endMonth: input.endMonth,
+            endYear: input.endYear,
+            employmentType: input.employmentType,
+            description: input.description,
+            employerAddress: input.employerAddress,
             seekerAddress: msg.sender,
-            attestationStatus: AttestationStatus.NotInitiated
+            attestationStatus: initialAttestationStatus,
+            employerStatus: employerStatus,
+            employerEmail: input.employerEmail
         });
 
         userExperienceIds[msg.sender].push(id);
-        emit ExperienceAdded(id, msg.sender);
+        if (employerStatus == EmployerStatus.Registered) {
+            employerExperienceIds[input.employerAddress].push(id);
+        }
+
+        if (employerStatus == EmployerStatus.Unregistered) {
+            employerEmailExperiences[input.employerEmail].push(id);
+        }
+
+        emit ExperienceAdded(id, msg.sender, employerStatus);
         return id;
+    }
+
+    function registerEmployertoExperience(
+        uint32 experienceId, 
+        address employerAddress,
+        string memory employerEnsName
+    ) external validExperienceId(experienceId) nonReentrant {
+        Experience storage experience = experiences[experienceId];
+        require(experience.employerStatus == EmployerStatus.Unregistered, "Employer already registered");
+        require(employerAddress != address(0), "Invalid employer address");
+        require(bytes(employerEnsName).length > 0, "Employer ENS name required");
+        require(bytes(experience.employerEmail).length > 0, "No email found for registration");
+        require(employerEmailToAddress[experience.employerEmail] == address(0), "Email already registered");
+
+        experience.employerAddress = employerAddress;
+        experience.employerEnsName = employerEnsName;
+        experience.employerStatus = EmployerStatus.Registered;
+        experience.attestationStatus = AttestationStatus.Pending;
+
+        employerEmailToAddress[experience.employerEmail] = employerAddress;
+        employerExperienceIds[employerAddress].push(experienceId);
+
+        emit EmployerRegistered(experienceId, employerAddress, employerEnsName);
     }
 
     function chooseEmployerForAttestation(uint32 experienceId, address employerAddress)
         external
         validExperienceId(experienceId)
-        nonReentrant
-    {
+        nonReentrant {
         Experience storage experience = experiences[experienceId];
         require(msg.sender == experience.owner, "Only the experience owner can assign employer");
         require(employerAddress != address(0), "Invalid employer address");
@@ -129,9 +177,10 @@ contract Employd is Ownable, ReentrancyGuard {
         nonReentrant 
     {
         Experience storage experience = experiences[experienceId];
-        require(experience.seekerAddress == seeker, "Provided seeker does not match the experience seeker");
-        require(msg.sender == experience.employerAddress, "Only the assigned employer can sign");
-        require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
+        require(experience.seekerAddress == seeker, "Invalid seeker");
+        require(msg.sender == experience.employerAddress, "Only assigned employer can sign");
+        require(experience.attestationStatus == AttestationStatus.Pending, "Attestation not pending");
+        require(experience.employerStatus == EmployerStatus.Registered, "Employer not registered");
 
         bytes memory data = abi.encode(
             experience.role,
@@ -174,7 +223,8 @@ contract Employd is Ownable, ReentrancyGuard {
 
     function rejectAttestation(uint32 experienceId) external validExperienceId(experienceId) {
         Experience storage experience = experiences[experienceId];
-        require(experience.attestationStatus == AttestationStatus.Pending, "Attestation is not pending");
+        require(msg.sender == experience.employerAddress, "Only assigned employer can reject");
+        require(experience.attestationStatus == AttestationStatus.Pending, "Attestation not pending");
 
         experience.attestationStatus = AttestationStatus.Rejected;
         emit AttestationRejected(experienceId);
@@ -193,23 +243,28 @@ contract Employd is Ownable, ReentrancyGuard {
     function getUserExperiences(address user) external view returns (Experience[] memory) {
         uint32[] memory ids = userExperienceIds[user];
         Experience[] memory userExperiences = new Experience[](ids.length);
-
         for (uint256 i = 0; i < ids.length; i++) {
             userExperiences[i] = experiences[ids[i]];
         }
-
         return userExperiences;
     }
 
     function getEmployerExperiences(address employer) external view returns (Experience[] memory) {
         uint32[] memory ids = employerExperienceIds[employer];
         Experience[] memory employerExperiences = new Experience[](ids.length);
-
         for (uint256 i = 0; i < ids.length; i++) {
             employerExperiences[i] = experiences[ids[i]];
         }
-
         return employerExperiences;
+    }
+
+    function getExperiencesByEmail(string memory email) external view returns (Experience[] memory) {
+        uint32[] memory ids = employerEmailExperiences[email];
+        Experience[] memory experiencesByEmail = new Experience[](ids.length);
+        for (uint256 i = 0; i < ids.length; i++) {
+            experiencesByEmail[i] = experiences[ids[i]];
+        }
+        return experiencesByEmail;
     }
 
     // Fetch array of experience IDs for a user
