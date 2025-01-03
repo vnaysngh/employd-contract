@@ -211,4 +211,22 @@ contract Employd is Ownable, ReentrancyGuard {
 
         return employerExperiences;
     }
+
+    // Fetch array of experience IDs for a user
+    function getUserExperienceIds(address user) 
+        external 
+        view 
+        returns (uint32[] memory) 
+    {
+        return userExperienceIds[user];
+    }
+
+    // Fetch array of experience IDs for an employer
+    function getEmployerExperienceIds(address employer) 
+        external 
+        view 
+        returns (uint32[] memory) 
+    {
+        return employerExperienceIds[employer];
+    }
 }
