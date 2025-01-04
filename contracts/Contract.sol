@@ -225,11 +225,12 @@ contract Employd is Ownable, ReentrancyGuard {
             data: data
         });
 
-        uint64 attestationId = spInstance.attest(a, "", "", "");
+        uint64 attestationId = spInstance.attest(a, experience.employerEnsName, "", "");
         require(attestationId != 0, "Attestation failed");
 
         experience.attestationStatus = AttestationStatus.Signed;
         emit AttestationSigned(experienceId, seeker, msg.sender, attestationId);
+        
         return attestationId;
     }
 
