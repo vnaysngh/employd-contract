@@ -85,16 +85,13 @@ contract Employd is Ownable, ReentrancyGuard {
         require(bytes(input.employerName).length > 0, "Employer name required");
 
         EmployerStatus employerStatus;
-        AttestationStatus initialAttestationStatus;
 
         if (input.employerAddress != address(0)) {
             require(bytes(input.employerEnsName).length > 0, "Employer ENS required");
             employerStatus = EmployerStatus.Registered;
-            initialAttestationStatus = AttestationStatus.Pending;
         } else {
             require(bytes(input.employerEmail).length > 0, "Email required");
             employerStatus = EmployerStatus.Unregistered;
-            initialAttestationStatus = AttestationStatus.NotInitiated;
         }
 
         uint32 id = nextId++;
@@ -114,7 +111,7 @@ contract Employd is Ownable, ReentrancyGuard {
             description: input.description,
             employerAddress: input.employerAddress,
             seekerAddress: msg.sender,
-            attestationStatus: initialAttestationStatus,
+            attestationStatus: AttestationStatus.NotInitiated,
             employerStatus: employerStatus,
             employerEmail: input.employerEmail
         });
@@ -130,29 +127,6 @@ contract Employd is Ownable, ReentrancyGuard {
 
         emit ExperienceAdded(id, msg.sender, employerStatus);
         return id;
-    }
-
-    function registerEmployertoExperience(
-        uint32 experienceId, 
-        address employerAddress,
-        string memory employerEnsName
-    ) external validExperienceId(experienceId) nonReentrant {
-        Experience storage experience = experiences[experienceId];
-        require(experience.employerStatus == EmployerStatus.Unregistered, "Employer already registered");
-        require(employerAddress != address(0), "Invalid employer address");
-        require(bytes(employerEnsName).length > 0, "Employer ENS name required");
-        require(bytes(experience.employerEmail).length > 0, "No email found for registration");
-        require(employerEmailToAddress[experience.employerEmail] == address(0), "Email already registered");
-
-        experience.employerAddress = employerAddress;
-        experience.employerEnsName = employerEnsName;
-        experience.employerStatus = EmployerStatus.Registered;
-        experience.attestationStatus = AttestationStatus.Pending;
-
-        employerEmailToAddress[experience.employerEmail] = employerAddress;
-        employerExperienceIds[employerAddress].push(experienceId);
-
-        emit EmployerRegistered(experienceId, employerAddress, employerEnsName);
     }
 
     function chooseEmployerForAttestation(uint32 experienceId, address employerAddress)
@@ -171,10 +145,47 @@ contract Employd is Ownable, ReentrancyGuard {
         emit EmployerChosen(experienceId, employerAddress, experience.employerEnsName);
     }
 
+    function assignEmployerToExperience(
+        uint32 experienceId, 
+        address employerAddress,
+        string memory employerEnsName
+    ) external validExperienceId(experienceId) nonReentrant {
+        Experience storage experience = experiences[experienceId];
+        require(experience.employerStatus == EmployerStatus.Unregistered, "Employer already registered");
+        require(employerAddress != address(0), "Invalid employer address");
+        require(bytes(employerEnsName).length > 0, "Employer ENS name required");
+        require(bytes(experience.employerEmail).length > 0, "No email found for registration");
+        require(employerEmailToAddress[experience.employerEmail] == address(0), "Email already registered");
+
+        // Update employer details
+        experience.employerAddress = employerAddress;
+        experience.employerEnsName = employerEnsName;
+        experience.employerStatus = EmployerStatus.Registered;
+        experience.attestationStatus = AttestationStatus.Pending;
+
+        // Map email to the new employer address
+        employerEmailToAddress[experience.employerEmail] = employerAddress;
+
+        // Add experienceId to employer's list
+        employerExperienceIds[employerAddress].push(experienceId);
+
+        // Remove experienceId from employerEmailExperiences
+        uint32[] storage emailExperiences = employerEmailExperiences[experience.employerEmail];
+        for (uint256 i = 0; i < emailExperiences.length; i++) {
+            if (emailExperiences[i] == experienceId) {
+                emailExperiences[i] = emailExperiences[emailExperiences.length - 1]; // Replace with the last element
+                emailExperiences.pop(); // Remove the last element
+                break;
+            }
+        }
+
+        emit EmployerRegistered(experienceId, employerAddress, employerEnsName);
+    }
+
     function signAttestation(uint32 experienceId, address seeker) 
         external 
         validExperienceId(experienceId) 
-        nonReentrant 
+        nonReentrant returns (uint64)
     {
         Experience storage experience = experiences[experienceId];
         require(experience.seekerAddress == seeker, "Invalid seeker");
@@ -219,6 +230,7 @@ contract Employd is Ownable, ReentrancyGuard {
 
         experience.attestationStatus = AttestationStatus.Signed;
         emit AttestationSigned(experienceId, seeker, msg.sender, attestationId);
+        return attestationId;
     }
 
     function rejectAttestation(uint32 experienceId) external validExperienceId(experienceId) {
