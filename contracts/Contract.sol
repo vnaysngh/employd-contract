@@ -117,10 +117,7 @@ contract Employd is Ownable, ReentrancyGuard {
         });
 
         userExperienceIds[msg.sender].push(id);
-        if (employerStatus == EmployerStatus.Registered) {
-            employerExperienceIds[input.employerAddress].push(id);
-        }
-
+        
         if (employerStatus == EmployerStatus.Unregistered) {
             employerEmailExperiences[input.employerEmail].push(id);
         }
